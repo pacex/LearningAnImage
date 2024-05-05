@@ -111,7 +111,7 @@ model.to(device)
 
 # Load data
 print("Loading image data...")
-image_path = "mandrill.jpg"
+image_path = "house.jpg"
 batch_size = 64
 image_dataset = ImagePixelDataset(image_path)
 train_loader = DataLoader(image_dataset, batch_size=batch_size, shuffle=True)
