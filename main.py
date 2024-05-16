@@ -1,6 +1,5 @@
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms
 from PIL import Image
 import torch.nn as nn
 import torch.optim as optim
@@ -35,13 +34,13 @@ class MLP(nn.Module):
 
 # Frequency Encoding
 class FrequencyEncoding(nn.Module):
-    def __init__(self, input_dim, n_frequencies):
+    def __init__(self, input_dim, n_frequencies, freq_factor=1):
         super(FrequencyEncoding, self).__init__()
         self.input_dim = input_dim
         self.n_frequencies = n_frequencies
         self.output_dim = input_dim * n_frequencies * 2
 
-        self.frequencies = torch.tensor([pow(2,x) * np.pi for x in range(n_frequencies)], device=device).repeat(input_dim)
+        self.frequencies = torch.tensor([pow(2,x) * np.pi * freq_factor for x in range(n_frequencies)], device=device).repeat(input_dim)
     
     def forward(self, x):
         expanded_x = x.unsqueeze(2).repeat(1, 1, self.n_frequencies).view(x.size(0), -1)
@@ -52,17 +51,16 @@ class FrequencyEncoding(nn.Module):
     
 # MLP with Encoding
 class NetworkWithEncoding(nn.Module):
-    def __init__(self, input_dim, hidden_dim, output_dim, n_hidden_layers, n_frequencies):
+    def __init__(self, input_dim, hidden_dim, output_dim, n_hidden_layers, n_frequencies, freq_factor=1):
         super(NetworkWithEncoding, self).__init__()
-        self.encoding = FrequencyEncoding(input_dim=input_dim, n_frequencies=n_frequencies)
+        self.encoding = FrequencyEncoding(input_dim=input_dim, n_frequencies=n_frequencies, freq_factor=freq_factor)
         self.mlp = MLP(input_dim=self.encoding.output_dim, hidden_dim=hidden_dim, output_dim=output_dim, n_hidden_layers=n_hidden_layers)
 
     def forward(self, x):
         e = self.encoding(x)
         y = self.mlp(e)
         return y
-
-
+    
 class ImagePixelDataset(Dataset):
     def __init__(self, image_path):
         self.image = Image.open(image_path)
@@ -72,41 +70,38 @@ class ImagePixelDataset(Dataset):
         return self.width * self.height
 
     def __getitem__(self, idx):
-        y, x = divmod(idx, self.width)  # Calculate pixel coordinates
-        r, g, b = self.image.getpixel((x, y))  # Get RGB values of the pixel
-        # Normalize x, y to range [0, 1]
+        y, x = divmod(idx, self.width)
+        r, g, b = self.image.getpixel((x, y))
+
         x_norm = x / (self.width - 1)
         y_norm = y / (self.height - 1)
-        # Normalize r, g, b to range [0, 1]
+
         r_norm = r / 255.0
         g_norm = g / 255.0
         b_norm = b / 255.0
         return torch.tensor([x_norm, y_norm]), torch.tensor([r_norm, g_norm, b_norm])
 
 def saveMLPImage(model, width, height, fname):
-    # Create a grid of pixel positions
+    # Create grid of pixel positions
     x_grid, y_grid = np.meshgrid(np.linspace(0, 1, width), np.linspace(0, 1, height))
     positions = np.stack([x_grid.ravel(), y_grid.ravel()], axis=1)
     positions_tensor = torch.tensor(positions, dtype=torch.float32)
-
-    # Move positions tensor to the appropriate device (CPU or GPU)
     positions_tensor = positions_tensor.to(device)
 
-    # Pass the positions tensor through the model to get predicted RGB values
+    # Predict colors using model
     model.eval()
     with torch.no_grad():
         predicted_rgb = model(positions_tensor)
 
-    # Reshape the predicted RGB values into an image format
+    # Reshape to image format
     predicted_rgb_image = predicted_rgb.cpu().numpy().reshape((height, width, 3))
     predicted_rgb_image = np.clip(predicted_rgb_image, 0, 1)
 
-    # Save the generated image to a file
     plt.imsave(fname, predicted_rgb_image)
 
 
 # Initialize the model
-model = NetworkWithEncoding(input_dim=2, hidden_dim=256, output_dim=3, n_hidden_layers=4, n_frequencies=32)
+model = NetworkWithEncoding(input_dim=2, hidden_dim=256, output_dim=3, n_hidden_layers=4, n_frequencies=32, freq_factor=32)
 model.to(device)
 
 # Load data
